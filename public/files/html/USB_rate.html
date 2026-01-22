@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USB Speed Evolution - Neon Chart</title>
+    <style>
+        :root {
+            --bg-deep: #000810;
+            --bg-grid: #001a33;
+            --neon-cyan: #00f3ff;
+            --neon-white: #ffffff;
+            --neon-blue: #0066ff;
+            --text-glow: 0 0 10px rgba(0, 243, 255, 0.8);
+            --box-glow: 0 0 15px rgba(0, 102, 255, 0.4);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            color: var(--neon-white);
+        }
+
+        /* 背景网格特效 */
+        .background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 50% 50%, rgba(0, 24, 48, 0.8) 0%, #000000 100%),
+                linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            z-index: -1;
+        }
+
+        /* 随机背景光点 */
+        .particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 3px),
+                radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 2px),
+                radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 3px);
+            background-size: 550px 550px, 350px 350px, 250px 250px;
+            background-position: 0 0, 40px 60px, 130px 270px;
+            opacity: 0.6;
+            z-index: -1;
+        }
+
+        /* 主图表容器 */
+        .chart-box {
+            position: relative;
+            width: 1000px;
+            height: 600px;
+            border: 2px solid rgba(0, 243, 255, 0.3);
+            border-radius: 15px;
+            background: rgba(0, 10, 20, 0.4);
+            box-shadow: 
+                0 0 20px rgba(0, 243, 255, 0.1),
+                inset 0 0 30px rgba(0, 102, 255, 0.2);
+            backdrop-filter: blur(5px);
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* 边框发光装饰 - 四角 */
+        .chart-box::before, .chart-box::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--neon-cyan);
+            transition: all 0.5s;
+            box-shadow: 0 0 10px var(--neon-cyan);
+        }
+        .chart-box::before { top: -2px; left: -2px; border-right: none; border-bottom: none; border-radius: 10px 0 0 0; }
+        .chart-box::after { bottom: -2px; right: -2px; border-left: none; border-top: none; border-radius: 0 0 10px 0; }
+
+        /* 标题 */
+        .title {
+            position: absolute;
+            top: -50px;
+            right: 0;
+            font-size: 3rem;
+            font-weight: 900;
+            color: var(--neon-white);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 
+                0 0 10px var(--neon-cyan),
+                0 0 20px var(--neon-blue);
+            font-style: italic;
+        }
+
+        .subtitle {
+            position: absolute;
+            top: 20px;
+            left: 30px;
+            font-size: 1.2rem;
+            color: var(--neon-cyan);
+            font-weight: bold;
+            text-shadow: 0 0 5px var(--neon-cyan);
+        }
+
+        /* SVG 图表区域 */
+        svg {
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+
+        /* 坐标轴 */
+        .axis line {
+            stroke: rgba(255, 255, 255, 0.2);
+            stroke-width: 1;
+        }
+        .axis text {
+            fill: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* 曲线 */
+        .line-path {
+            fill: none;
+            stroke: #fff;
+            stroke-width: 3;
+            filter: drop-shadow(0 0 5px var(--neon-cyan)) drop-shadow(0 0 10px var(--neon-blue));
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* 区域填充 */
+        .area-fill {
+            fill: url(#areaGradient);
+            opacity: 0.6;
+        }
+
+        /* 数据点 */
+        .dot {
+            fill: #fff;
+            stroke: var(--neon-cyan);
+            stroke-width: 2;
+            r: 5;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .dot:hover {
+            r: 8;
+            fill: var(--neon-cyan);
+            filter: drop-shadow(0 0 10px #fff);
+        }
+
+        /* 数据标签 */
+        .label {
+            fill: var(--neon-white);
+            font-size: 16px;
+            font-weight: bold;
+            text-anchor: middle;
+            filter: drop-shadow(0 0 2px #000);
+        }
+        
+        /* 竖直虚线 */
+        .grid-line-v {
+            stroke: rgba(0, 243, 255, 0.1);
+            stroke-width: 1;
+            stroke-dasharray: 4 4;
+        }
+        
+        /* 底部年份轴背景条 */
+        .x-axis-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            height: 1px;
+            background: rgba(255,255,255,0.3);
+            box-shadow: 0 0 10px var(--neon-cyan);
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="background"></div>
+    <div class="particles"></div>
+
+    <div class="chart-box">
+        <div class="title">USB</div>
+        <div class="subtitle">单位: Gbps</div>
+
+        <svg viewBox="0 0 960 560">
+            <defs>
+                <!-- 区域填充渐变 -->
+                <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:var(--neon-white); stop-opacity:0.4" />
+                    <stop offset="50%" style="stop-color:var(--neon-cyan); stop-opacity:0.2" />
+                    <stop offset="100%" style="stop-color:var(--neon-blue); stop-opacity:0" />
+                </linearGradient>
+                <!-- 发光滤镜 -->
+                <filter id="glow">
+                    <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+                    <feMerge>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+
+            <!-- 坐标网格 (垂直线) -->
+            <!-- 将年份映射到 X 轴: 1995(0) - 2025(960) -->
+            <line x1="50" y1="520" x2="50" y2="50" class="grid-line-v" /> <!-- 1995 -->
+            <line x1="200" y1="520" x2="200" y2="50" class="grid-line-v" /> <!-- 2000 -->
+            <line x1="350" y1="520" x2="350" y2="50" class="grid-line-v" /> <!-- 2005 -->
+            <line x1="500" y1="520" x2="500" y2="50" class="grid-line-v" /> <!-- 2010 -->
+            <line x1="650" y1="520" x2="650" y2="50" class="grid-line-v" /> <!-- 2015 -->
+            <line x1="800" y1="520" x2="800" y2="50" class="grid-line-v" /> <!-- 2020 -->
+            <line x1="950" y1="520" x2="950" y2="50" class="grid-line-v" /> <!-- 2025 -->
+
+            <!-- X 轴文字 -->
+            <g class="axis" transform="translate(0, 545)">
+                <text x="50" text-anchor="middle">1995</text>
+                <text x="200" text-anchor="middle">2000</text>
+                <text x="350" text-anchor="middle">2005</text>
+                <text x="500" text-anchor="middle">2010</text>
+                <text x="650" text-anchor="middle">2015</text>
+                <text x="800" text-anchor="middle">2020</text>
+                <text x="910" text-anchor="middle">2025</text>
+            </g>
+
+            <!-- 
+                数据点映射逻辑 (Visual Mapping):
+                为了达到原图的美学曲线效果，我手动调整了Y轴高度，而不是使用线性比例，
+                因为 12Mbps 和 80Gbps 差距太大，线性比例会导致前期数据贴地。
+                
+                USB 1.x (1996): x=80,  y=510 (Very Low)
+                USB 2.0 (2000): x=200, y=480 (Low)
+                USB 3.0 (2008): x=440, y=420 (Rising)
+                USB 3.1 (2013): x=590, y=350 (Mid)
+                USB 3.2 (2017): x=710, y=280 (High)
+                USB4 (2019):    x=770, y=200 (Higher)
+                USB4 v2 (2022): x=860, y=80  (Peak)
+            -->
+
+            <!-- 填充区域 (封闭路径) -->
+            <path d="M 80 510 
+                     L 200 480 
+                     L 440 420 
+                     L 590 350 
+                     L 710 280 
+                     L 770 200 
+                     L 860 80 
+                     L 860 520 
+                     L 80 520 Z" 
+                  class="area-fill" />
+
+            <!-- 折线路径 -->
+            <path d="M 80 510 
+                     L 200 480 
+                     L 440 420 
+                     L 590 350 
+                     L 710 280 
+                     L 770 200 
+                     L 860 80" 
+                  class="line-path" />
+
+            <!-- 数据点圆圈 -->
+            <circle cx="80" cy="510" class="dot" />
+            <circle cx="200" cy="480" class="dot" />
+            <circle cx="440" cy="420" class="dot" />
+            <circle cx="590" cy="350" class="dot" />
+            <circle cx="710" cy="280" class="dot" />
+            <circle cx="770" cy="200" class="dot" />
+            <circle cx="860" cy="80" class="dot" />
+
+            <!-- 数据标签 (速度) -->
+            <text x="80" y="495" class="label" style="font-size: 12px;">12 Mbps</text>
+            <text x="200" y="465" class="label">480 Mbps</text>
+            <text x="440" y="405" class="label">5 Gbps</text>
+            <text x="590" y="335" class="label">10 Gbps</text>
+            <text x="700" y="265" class="label">20 Gbps</text>
+            <text x="800" y="205" class="label">40 Gbps</text>
+            <text x="890" y="80" class="label" style="font-size: 18px; fill: #00f3ff;">80 Gbps</text>
+
+        </svg>
+
+        <!-- 底部发光横条 -->
+        <div class="x-axis-bar"></div>
+    </div>
+
+</body>
+</html>
