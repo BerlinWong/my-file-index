@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高速信号词云 - 无重叠版</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050510;
+            font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* 示波器网格背景 */
+            background-image: 
+                linear-gradient(rgba(50, 50, 50, 0.3) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(50, 50, 50, 0.3) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 95vw;
+            height: 80vh;
+        }
+
+        .word {
+            position: absolute;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.3s ease, text-shadow 0.3s ease;
+            text-shadow: 0 0 2px currentColor;
+            opacity: 0.9;
+            line-height: 1;
+            transform-origin: center center;
+        }
+
+        .word:hover {
+            z-index: 1000;
+            transform: scale(1.3) !important;
+            opacity: 1;
+            text-shadow: 0 0 10px currentColor;
+            background: rgba(0,0,0,0.5); /* 悬停时加个背景防止看不清 */
+            border-radius: 4px;
+        }
+
+        /* 模拟中心参考线 */
+        .reference-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: rgba(0, 255, 255, 0.15);
+            border-bottom: 1px dashed rgba(0, 255, 255, 0.1);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <div class="reference-line"></div>
+    </div>
+
+<script>
+    // 数据源
+    const tags = [
+        // 核心 - 稍大
+        { text: "均衡 Equalization", weight: 8, type: "general" },
+        { text: "信号完整性 SI", weight: 8, type: "general" },
+        { text: "Jitter 抖动", weight: 8, type: "general" },
+        
+        // 抖动分类 (颜色严格对应)
+        { text: "TJ (总抖动)", weight: 7, type: "blue" },
+        { text: "RJ (随机)", weight: 6, type: "purple" },
+        { text: "PJ (周期)", weight: 6, type: "purple" },
+        { text: "DDJ (数据相关)", weight: 6, type: "yellow" },
+        { text: "ISI 码间干扰", weight: 6, type: "yellow" },
+        { text: "高斯分布", weight: 5, type: "purple" },
+        { text: "双峰分布", weight: 5, type: "yellow" },
+
+        // 算法与技术
+        { text: "FFE", weight: 6, type: "tech" },
+        { text: "CTLE", weight: 6, type: "tech" },
+        { text: "DFE", weight: 6, type: "tech" },
+        { text: "时钟恢复 CDR", weight: 5, type: "tech" },
+        { text: "Tap Setup", weight: 4, type: "tech" },
+        { text: "自动系数", weight: 4, type: "tech" },
+        
+        // 触发
+        { text: "Edge Trigger", weight: 4, type: "general" },
+        { text: "Glitch", weight: 4, type: "general" },
+        { text: "Runt", weight: 4, type: "general" },
+        { text: "Pattern", weight: 4, type: "general" },
+        { text: "Setup/Hold", weight: 4, type: "general" },
+        { text: "Single Trigger", weight: 4, type: "general" },
+        
+        // 采样与显示
+        { text: "存储深度", weight: 5, type: "general" },
+        { text: "采样率", weight: 5, type: "general" },
+        { text: "奈奎斯特定理", weight: 4, type: "general" },
+        { text: "混叠 Aliasing", weight: 4, type: "general" },
+        { text: "眼图 Eye Diagram", weight: 5, type: "general" },
+        { text: "波形失真", weight: 3, type: "general" },
+        { text: "补偿 Compensation", weight: 3, type: "general" },
+        { text: "Pulse Width", weight: 3, type: "general" },
+        { text: "Transition", weight: 3, type: "general" },
+        { text: "Parallel Logic", weight: 3, type: "general" },
+        { text: "Normal Mode", weight: 3, type: "general" }
+    ];
+
+    const container = document.getElementById('canvas-container');
+    
+    // 颜色配置
+    const colors = {
+        blue: "#00CCFF",    // TJ - 亮蓝
+        purple: "#E040FB",  // RJ/PJ - 洋红/紫
+        yellow: "#FFD54F",  // DDJ - 琥珀黄
+        tech: "#69F0AE",    // 算法 - 荧光绿
+        general: "#40C4FF"  // 通用 - 青色
+    };
+
+    // 存储已放置的元素的边界框，用于碰撞检测
+    let placedRects = [];
+
+    function initCloud() {
+        container.innerHTML = '<div class="reference-line"></div>';
+        placedRects = [];
+        
+        const width = container.offsetWidth;
+        const height = container.offsetHeight;
+        const amplitude = height / 4; // 波幅
+        const frequency = 2.2; // 周期数
+        
+        // 先对标签进行排序，权重大的先放，这样核心词占据好位置
+        tags.sort((a, b) => b.weight - a.weight);
+
+        tags.forEach((tag, index) => {
+            const el = document.createElement('div');
+            el.className = 'word';
+            el.textContent = tag.text;
+            el.style.color = colors[tag.type] || colors.general;
+            
+            // 字体大小设置：更小巧
+            // 基础大小 10px，最大权重加成到 24px 左右
+            const fontSize = 10 + (tag.weight * 1.8); 
+            el.style.fontSize = `${fontSize}px`;
+            el.style.fontWeight = tag.weight > 6 ? 'bold' : 'normal';
+
+            // 必须先添加到DOM才能获取其宽和高
+            // 先设为不可见，计算完位置后再显示
+            el.style.visibility = 'hidden';
+            container.appendChild(el);
+
+            const elWidth = el.offsetWidth;
+            const elHeight = el.offsetHeight;
+
+            // 寻找位置
+            let bestX, bestY;
+            let found = false;
+            let attempts = 0;
+            const maxAttempts = 150; // 尝试次数上限
+
+            // 理想的X位置：根据索引均匀分布，加上随机扰动
+            // 这样能保证词语从左到右铺开
+            const idealXRatio = (index + 0.5) / tags.length; 
+            const baseX = idealXRatio * width * 0.9; // 0.9 防止太靠右边
+
+            while (!found && attempts < maxAttempts) {
+                attempts++;
+
+                // 在理想X附近随机寻找
+                // 随着尝试次数增加，搜索范围扩大
+                const spreadX = 50 + (attempts * 5); 
+                let testX = baseX + (Math.random() - 0.5) * spreadX;
+                
+                // 边界检查 X
+                if (testX < 10) testX = 10;
+                if (testX > width - elWidth - 10) testX = width - elWidth - 10;
+
+                // 计算正弦波 Y 位置
+                const angle = (testX / width) * Math.PI * 2 * frequency;
+                const sineY = Math.sin(angle) * amplitude;
+                
+                // 在正弦线上增加垂直随机散布
+                // 这里的散布范围(spreadY)决定了"波"的粗细
+                // 权重大的词尽量靠近中心线
+                const spreadY = (10 - tag.weight) * 15 + (attempts * 2); 
+                let testY = (height / 2) + sineY + (Math.random() - 0.5) * spreadY - (elHeight / 2);
+
+                // 边界检查 Y
+                if (testY < 10) testY = 10;
+                if (testY > height - elHeight - 10) testY = height - elHeight - 10;
+
+                // 碰撞检测
+                const newRect = {
+                    left: testX,
+                    top: testY,
+                    right: testX + elWidth,
+                    bottom: testY + elHeight
+                };
+
+                if (!checkCollision(newRect)) {
+                    bestX = testX;
+                    bestY = testY;
+                    found = true;
+                    // 保存占位信息，增加一点点padding防止贴太紧
+                    placedRects.push({
+                        left: newRect.left - 2,
+                        top: newRect.top - 2,
+                        right: newRect.right + 2,
+                        bottom: newRect.bottom + 2
+                    });
+                }
+            }
+
+            if (found) {
+                el.style.left = `${bestX}px`;
+                el.style.top = `${bestY}px`;
+                el.style.visibility = 'visible';
+                
+                // 随机微小旋转，增加动感，但不影响阅读
+                const rot = (Math.random() - 0.5) * 10;
+                el.style.transform = `rotate(${rot}deg)`;
+            } else {
+                // 如果实在找不到位置（极少情况），就移除该词或重叠显示
+                // 这里选择移除以保整洁，或者你可以选择强制显示
+                // el.remove(); 
+                // 现在的逻辑：强制显示在稍微重叠的位置，避免丢失信息
+                console.log("Collision tough for: " + tag.text);
+                el.style.visibility = 'visible'; 
+                el.style.opacity = 0.5; // 稍微变暗
+            }
+        });
+    }
+
+    // 检测矩形是否重叠
+    function checkCollision(r1) {
+        for (let r2 of placedRects) {
+            if (!(r1.right < r2.left || 
+                  r1.left > r2.right || 
+                  r1.bottom < r2.top || 
+                  r1.top > r2.bottom)) {
+                return true; // 重叠了
+            }
+        }
+        return false;
+    }
+
+    // 初始化
+    initCloud();
+
+    // 窗口大小改变时重绘
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(initCloud, 200);
+    });
+
+</script>
+</body>
+</html>
